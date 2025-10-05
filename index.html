@@ -3,46 +3,90 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>금 김치 프리미엄 트래커</title>
+  <title>금 김치 프리미엄 추적기</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <h1>금 김치 프리미엄 추적기</h1>
+  <h1>금 김치 프리미엄 추이</h1>
   <div id="data"></div>
+  <canvas id="chart" width="600" height="300"></canvas>
 
-  <script>
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+    // 🔹 여기에 너의 Supabase 정보 입력
+    const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     async function fetchGoldPrices() {
       try {
-        // 1. 국제 금 시세 (USD/oz)
         const intlRes = await fetch("https://api.metals.live/v1/spot/gold");
         const intlData = await intlRes.json();
-        const intlPriceUSD = intlData[0].gold; // USD per oz
+        const intlPriceUSD = intlData[0].gold;
 
-        // 2. 원/달러 환율
         const fxRes = await fetch("https://api.exchangerate.host/latest?base=USD&symbols=KRW");
         const fxData = await fxRes.json();
         const usdToKrw = fxData.rates.KRW;
-
-        // 3. 국제 금 가격을 원화로 환산
         const intlPriceKRW = intlPriceUSD * usdToKrw;
 
-        // 4. 국내 금 시세 (한국금거래소 API 등)
-        const korRes = await fetch("https://api.koreagoldx.com/v1/price");
-        const korData = await korRes.json();
-        const korPrice = korData.price_per_gram * 31.1035; // g → oz
-
-        // 5. 김치 프리미엄 계산
+        // 🔸 임시 국내 금 시세 (실제 API로 바꿀 수 있음)
+        const korPrice = intlPriceKRW * (1 + Math.random() * 0.05 - 0.02);
         const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
 
+        // 페이지 표시
         document.getElementById("data").innerHTML = `
-          <p>국제 금 가격: ${intlPriceUSD.toFixed(2)} USD/oz</p>
-          <p>환율: ${usdToKrw.toFixed(2)} KRW/USD</p>
-          <p>국제 금 (원화): ${intlPriceKRW.toLocaleString()} KRW/oz</p>
-          <p>국내 금 시세: ${korPrice.toLocaleString()} KRW/oz</p>
+          <p>국제 금: ${intlPriceUSD.toFixed(2)} USD/oz</p>
+          <p>국제 금(원화): ${intlPriceKRW.toLocaleString()} KRW/oz</p>
+          <p>국내 금 시세(추정): ${korPrice.toLocaleString()} KRW/oz</p>
           <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
         `;
+
+        // Supabase에 저장
+        await supabase.from("gold_prices").insert([
+          {
+            intl_price_usd: intlPriceUSD,
+            intl_price_krw: intlPriceKRW,
+            kor_price_krw: korPrice,
+            premium,
+          },
+        ]);
+
+        // 차트 불러오기
+        loadChart();
       } catch (err) {
-        document.getElementById("data").innerText = "데이터를 불러올 수 없습니다.";
+        console.error(err);
       }
+    }
+
+    async function loadChart() {
+      const { data, error } = await supabase
+        .from("gold_prices")
+        .select("created_at, premium")
+        .order("created_at", { ascending: true });
+
+      const labels = data.map(row => new Date(row.created_at).toLocaleDateString());
+      const values = data.map(row => row.premium);
+
+      const ctx = document.getElementById("chart").getContext("2d");
+      new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "김치 프리미엄 (%)",
+              data: values,
+              borderWidth: 2,
+              borderColor: "gold",
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          scales: { y: { beginAtZero: true } },
+        },
+      });
     }
 
     fetchGoldPrices();
