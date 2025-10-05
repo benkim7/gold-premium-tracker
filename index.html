@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>금 김치 프리미엄 트래커</title>
+</head>
+<body>
+  <h1>금 김치 프리미엄 추적기</h1>
+  <div id="data"></div>
+
+  <script>
+    async function fetchGoldPrices() {
+      try {
+        // 1. 국제 금 시세 (USD/oz)
+        const intlRes = await fetch("https://api.metals.live/v1/spot/gold");
+        const intlData = await intlRes.json();
+        const intlPriceUSD = intlData[0].gold; // USD per oz
+
+        // 2. 원/달러 환율
+        const fxRes = await fetch("https://api.exchangerate.host/latest?base=USD&symbols=KRW");
+        const fxData = await fxRes.json();
+        const usdToKrw = fxData.rates.KRW;
+
+        // 3. 국제 금 가격을 원화로 환산
+        const intlPriceKRW = intlPriceUSD * usdToKrw;
+
+        // 4. 국내 금 시세 (한국금거래소 API 등)
+        const korRes = await fetch("https://api.koreagoldx.com/v1/price");
+        const korData = await korRes.json();
+        const korPrice = korData.price_per_gram * 31.1035; // g → oz
+
+        // 5. 김치 프리미엄 계산
+        const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
+
+        document.getElementById("data").innerHTML = `
+          <p>국제 금 가격: ${intlPriceUSD.toFixed(2)} USD/oz</p>
+          <p>환율: ${usdToKrw.toFixed(2)} KRW/USD</p>
+          <p>국제 금 (원화): ${intlPriceKRW.toLocaleString()} KRW/oz</p>
+          <p>국내 금 시세: ${korPrice.toLocaleString()} KRW/oz</p>
+          <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
+        `;
+      } catch (err) {
+        document.getElementById("data").innerText = "데이터를 불러올 수 없습니다.";
+      }
+    }
+
+    fetchGoldPrices();
+  </script>
+</body>
+</html>
