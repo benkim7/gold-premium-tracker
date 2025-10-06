@@ -11,49 +11,50 @@
   <div id="data"></div>
   <canvas id="chart" width="600" height="300"></canvas>
 
-<script type="module">
+  <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-  // Supabase
+  // Supabase (네 값 유지)
   const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
+  const supabaseKey = "네_anon_public_key_그대로";
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Metals-API (정상 엔드포인트 + 제공하신 키 사용)
-  const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
+  // Metals-API 키 (이미 쓰던 값 그대로)
+  const METALS_KEY = "네_METALS_API_KEY_그대로";
+
+  let chart; // 차트 중복 생성 방지용
 
   async function fetchGoldPrices() {
     try {
-      // 1) 국제 금 시세 (USD/oz) 가져오기
-      //    ※ metals-api는 base=USD를 명시해야 USD 기준 환율이 옵니다.
-      const url = `https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`;
-      const resp = await fetch(url);
-      const json = await resp.json();
-
-      if (!resp.ok || !json?.success) {
-        throw new Error("metals-api 오류: " + JSON.stringify(json));
+      // 1) 국제 금 시세 (USD/oz)
+      const mUrl = `https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`;
+      const mResp = await fetch(mUrl);
+      const mJson = await mResp.json();
+      if (!mResp.ok || !mJson?.success) {
+        throw new Error("metals-api 오류: " + JSON.stringify(mJson));
       }
-      // metals-api의 rates.XAU = "1 USD당 XAU(온스)의 양" → USD/oz를 얻으려면 역수
-      const xauPerUsd = json.rates?.XAU;
-      if (typeof xauPerUsd !== "number" || xauPerUsd <= 0) {
-        throw new Error("금 시세 응답 형식 이상: " + JSON.stringify(json));
-      }
-      const intlPriceUSD = 1 / xauPerUsd; // USD per XAU(=troy ounce)
+      // 응답에 USDXAU가 있으면 그대로 사용, 없으면 1/rates.XAU
+      const intlPriceUSD =
+        typeof mJson.rates?.USDXAU === "number"
+          ? mJson.rates.USDXAU
+          : 1 / mJson.rates.XAU; // USD per XAU(=troy oz)
 
-      // 2) 환율 (USD→KRW)
-      const fxRes = await fetch("https://api.exchangerate.host/latest?base=USD&symbols=KRW");
-      const fxData = await fxRes.json();
-      const usdToKrw = fxData?.rates?.KRW;
-      if (typeof usdToKrw !== "number") {
-        throw new Error("환율 응답 오류: " + JSON.stringify(fxData));
+      // 2) 환율 (USD→KRW) — 키 불필요, CORS 허용
+      const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
+      const fxJson = await fxResp.json();
+      const usdToKrw = fxJson?.rates?.KRW ?? fxJson?.conversion_rates?.KRW;
+      if (fxJson?.result !== "success" || typeof usdToKrw !== "number") {
+        throw new Error("환율 응답 오류: " + JSON.stringify(fxJson));
       }
-      const intlPriceKRW = intlPriceUSD * usdToKrw; // KRW/oz
 
-      // 3) (임시) 국내 금 시세 — 실제 API 붙이기 전까지는 추정치
-      const korPrice = intlPriceKRW * (1 + (Math.random() * 0.05 - 0.02)); // ±2%~5% 랜덤
+      // 3) KRW/oz 환산
+      const intlPriceKRW = intlPriceUSD * usdToKrw;
+
+      // 4) (임시) 국내 금 시세 — 실제 API로 교체 예정
+      const korPrice = intlPriceKRW * (1 + (Math.random() * 0.05 - 0.02)); // ±2~5%
       const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
 
-      // 4) 페이지 표시
+      // 5) 화면 표시
       document.getElementById("data").innerHTML = `
         <p>국제 금 (USD/oz): ${intlPriceUSD.toFixed(2)}</p>
         <p>국제 금 (KRW/oz): ${intlPriceKRW.toLocaleString()}</p>
@@ -61,17 +62,25 @@
         <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
       `;
 
-      // 5) Supabase 저장
+      // 6) Supabase 저장
       const { error: insertError } = await supabase
         .from("gold_prices")
-        .insert([{ intl_price_usd: intlPriceUSD, intl_price_krw: intlPriceKRW, kor_price_krw: korPrice, premium }]);
+        .insert([
+          {
+            intl_price_usd: intlPriceUSD,
+            intl_price_krw: intlPriceKRW,
+            kor_price_krw: korPrice,
+            premium,
+          },
+        ]);
       if (insertError) console.error("Supabase insert error:", insertError);
 
-      // 6) 차트 렌더
+      // 7) 차트 렌더(중복 생성 방지)
       await loadChart();
     } catch (err) {
       console.error("fetchGoldPrices 에러:", err);
-      document.getElementById("data").innerHTML = `<p style="color:red">에러: ${String(err.message || err)}</p>`;
+      document.getElementById("data").innerHTML =
+        `<p style="color:red">에러: ${String(err.message || err)}</p>`;
     }
   }
 
@@ -82,21 +91,24 @@
       .order("created_at", { ascending: true })
       .limit(1000);
 
-    if (error || !data) {
-      console.error("loadChart error:", error);
-      return;
-    }
-    if (data.length === 0) return;
+    if (error || !data || data.length === 0) return;
 
     const labels = data.map(r => new Date(r.created_at).toLocaleString());
     const values = data.map(r => r.premium);
 
     const ctx = document.getElementById("chart").getContext("2d");
-    new Chart(ctx, {
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
       type: "line",
       data: {
         labels,
-        datasets: [{ label: "김치 프리미엄 (%)", data: values, borderWidth: 2, borderColor: "gold", fill: false }],
+        datasets: [{
+          label: "김치 프리미엄 (%)",
+          data: values,
+          borderWidth: 2,
+          borderColor: "gold",
+          fill: false
+        }],
       },
       options: { scales: { y: { beginAtZero: true } } },
     });
@@ -104,6 +116,7 @@
 
   fetchGoldPrices();
 </script>
+
 
 
 </body>
