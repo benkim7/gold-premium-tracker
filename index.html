@@ -16,9 +16,13 @@
   <h1>금 김치 프리미엄 추이</h1>
   <div id="data"></div>
   <div id="chart-container"><canvas id="chart"></canvas></div>
-  <div id="footer">
-    📊 출처: Metals API, KIS Open API
-  </div>
+<div id="footer">
+  📊 데이터 출처:
+  <a href="https://metals-api.com" target="_blank">Metals API (국제 금)</a>,
+  <a href="https://open.er-api.com" target="_blank">Open ER API (환율)</a>,
+  <a href="https://apiportal.koreainvestment.com" target="_blank">한국투자증권 (국내 금)</a>
+</div>
+
 
   <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -51,11 +55,21 @@
       try {
         const kisResp = await fetch("/api/kis-goldprice"); // pdno 미지정 시 env KIS_GOLD_PDNO 사용
         const kisJson = await kisResp.json();
-        if (kisResp.ok && kisJson?.ok && typeof kisJson.priceKRWPerOz === "number") {
-          korPriceKRWPerOz = kisJson.priceKRWPerOz;
-        } else {
-          console.warn("KIS 프록시 응답 이상, fallback 사용:", kisJson);
+
+      if (kisResp.ok && kisJson?.ok && typeof kisJson.priceKRWPerOz === "number") {
+        korPriceKRWPerOz = kisJson.priceKRWPerOz;
+      
+        // ✅ 금가격이 0원일 경우(휴장/데이터 없음) fallback 적용
+        if (!korPriceKRWPerOz || korPriceKRWPerOz === 0) {
+          console.warn("국내 금 시세 0원 — 휴장 또는 데이터 없음, 국제 금 시세로 대체");
+          korPriceKRWPerOz = intlPriceKRW;
         }
+      } else {
+        console.warn("KIS 프록시 응답 이상, fallback 사용:", kisJson);
+        korPriceKRWPerOz = intlPriceKRW;
+      }
+
+        
       } catch (e) {
         console.warn("KIS 프록시 호출 실패, fallback 사용:", e);
       }
