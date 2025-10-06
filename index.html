@@ -6,30 +6,12 @@
   <title>금 김치 프리미엄 추적기</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body {
-      font-family: 'Noto Sans KR', sans-serif;
-      text-align: center;
-      margin: 20px;
-      background-color: #fafafa;
-    }
-    #chart-container {
-      width: 100%;
-      height: 65vh;
-    }
-    canvas {
-      width: 100%;
-      height: 100%;
-    }
-    #footer {
-      font-size: 11px;
-      color: gray;
-      position: fixed;
-      bottom: 8px;
-      right: 10px;
-    }
+    body { font-family: 'Noto Sans KR', sans-serif; text-align: center; margin: 20px; background-color: #fafafa; }
+    #chart-container { width: 100%; height: 65vh; }
+    canvas { width: 100%; height: 100%; }
+    #footer { font-size: 11px; color: gray; position: fixed; bottom: 8px; right: 10px; }
   </style>
 </head>
-
 <body>
   <h1>금 김치 프리미엄 추이</h1>
   <div id="data"></div>
@@ -43,25 +25,20 @@
 
   <script type="module">
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-    // 🔹 Supabase 연결 정보
     const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
-    const supabaseKey =
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
     const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // 🔹 Metals API 키
     const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
 
     let chart;
 
     async function fetchGoldPrices() {
-      let korPriceKRWPerOz = 0; // 💡 함수 시작 시 선언
+      let korPriceKRWPerOz = 0;
+      let marketStatus = "🔴 휴장중";
+
       try {
         // 1️⃣ 국제 금 시세 (USD/oz)
-        const mResp = await fetch(
-          `https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`
-        );
+        const mResp = await fetch(`https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`);
         const mJson = await mResp.json();
         if (!mJson.success) throw new Error("Metals API 오류: " + JSON.stringify(mJson));
         const intlPriceUSD = 1 / mJson.rates.XAU;
@@ -70,37 +47,39 @@
         const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
         const fxJson = await fxResp.json();
         const usdToKrw = fxJson?.rates?.KRW ?? fxJson?.conversion_rates?.KRW;
-        if (typeof usdToKrw !== "number")
-          throw new Error("환율 응답 오류: " + JSON.stringify(fxJson));
+        if (typeof usdToKrw !== "number") throw new Error("환율 응답 오류");
         const intlPriceKRW = intlPriceUSD * usdToKrw;
 
-        // 3️⃣ 국내 금 시세 (KIS)
+        // 3️⃣ 국내 금 시세 (KIS 프록시)
+        let stckPrpr = 0;
         try {
           const kisResp = await fetch("/api/kis-goldprice");
           const kisJson = await kisResp.json();
 
-          if (kisResp.ok && kisJson?.ok && typeof kisJson.priceKRWPerOz === "number") {
-            korPriceKRWPerOz = kisJson.priceKRWPerOz;
-            if (!korPriceKRWPerOz || korPriceKRWPerOz === 0) {
+          if (kisResp.ok && kisJson?.ok) {
+            const raw = kisJson.raw?.output ?? {};
+            stckPrpr = Number(raw.stck_prpr ?? 0);
+            korPriceKRWPerOz = kisJson.priceKRWPerOz || intlPriceKRW;
+
+            // 거래 여부 판단
+            if (stckPrpr > 0) {
+              marketStatus = "🟢 거래중";
+            } else {
               console.warn("국내 금 시세 0원 — 휴장 또는 데이터 없음, 국제 금 시세로 대체");
               korPriceKRWPerOz = intlPriceKRW;
             }
           } else {
-            console.warn("KIS 프록시 응답 이상, fallback 사용:", kisJson);
             korPriceKRWPerOz = intlPriceKRW;
           }
         } catch (err) {
-          console.warn("KIS API 호출 실패, fallback:", err);
+          console.warn("KIS API 오류:", err);
           korPriceKRWPerOz = intlPriceKRW;
         }
 
         // 4️⃣ 김치 프리미엄 계산
         const premium = ((korPriceKRWPerOz - intlPriceKRW) / intlPriceKRW) * 100;
 
-        // 5️⃣ 시장 상태
-        const marketStatus = korPriceKRWPerOz > 0 ? "🟢 거래중" : "🔴 휴장중";
-
-        // 6️⃣ 화면 표시
+        // 5️⃣ 화면 표시
         document.getElementById("data").innerHTML = `
           <p>국제 금 (USD/oz): ${intlPriceUSD.toFixed(2)}</p>
           <p>국제 금 (KRW/oz): ${intlPriceKRW.toLocaleString()}</p>
@@ -110,7 +89,7 @@
           <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
         `;
 
-        // 7️⃣ DB 저장
+        // 6️⃣ DB 저장
         await supabase.from("gold_prices").insert([
           {
             intl_price_usd: intlPriceUSD,
@@ -121,16 +100,14 @@
           },
         ]);
 
-        // 8️⃣ 차트 업데이트
+        // 7️⃣ 차트 갱신
         loadChart();
-        loadFxChart();
       } catch (err) {
         console.error("fetchGoldPrices error:", err);
         document.getElementById("data").innerHTML = `<p style="color:red">오류: ${err.message}</p>`;
       }
     }
 
-    // 🔹 금 시세 + 프리미엄 복합 차트
     async function loadChart() {
       const { data } = await supabase
         .from("gold_prices")
@@ -150,29 +127,9 @@
         data: {
           labels,
           datasets: [
-            {
-              type: "bar",
-              label: "국제 금가격 (KRW/oz)",
-              data: intl,
-              backgroundColor: "rgba(255, 215, 0, 0.5)",
-              yAxisID: "y1",
-            },
-            {
-              type: "bar",
-              label: "국내 금가격 (KRW/oz)",
-              data: kor,
-              backgroundColor: "rgba(30, 144, 255, 0.4)",
-              yAxisID: "y1",
-            },
-            {
-              type: "line",
-              label: "김치 프리미엄 (%)",
-              data: prem,
-              borderColor: "red",
-              borderWidth: 2,
-              fill: false,
-              yAxisID: "y2",
-            },
+            { type: "bar", label: "국제 금가격 (KRW/oz)", data: intl, backgroundColor: "rgba(255, 215, 0, 0.5)", yAxisID: "y1" },
+            { type: "bar", label: "국내 금가격 (KRW/oz)", data: kor, backgroundColor: "rgba(30, 144, 255, 0.4)", yAxisID: "y1" },
+            { type: "line", label: "김치 프리미엄 (%)", data: prem, borderColor: "red", borderWidth: 2, fill: false, yAxisID: "y2" },
           ],
         },
         options: {
@@ -187,50 +144,8 @@
       });
     }
 
-    // 🔹 환율 차트
-    async function loadFxChart() {
-      const { data } = await supabase
-        .from("gold_prices")
-        .select("created_at,usd_to_krw")
-        .order("created_at", { ascending: true });
-
-      if (!data || data.length === 0) return;
-
-      const labels = data.map(r => new Date(r.created_at).toLocaleString());
-      const fx = data.map(r => r.usd_to_krw);
-
-      const fxCanvas = document.createElement("canvas");
-      fxCanvas.id = "fxChart";
-      fxCanvas.style.marginTop = "40px";
-      fxCanvas.style.height = "45vh";
-      document.body.appendChild(fxCanvas);
-
-      new Chart(fxCanvas, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "USD → KRW 환율 추이",
-              data: fx,
-              borderColor: "blue",
-              borderWidth: 2,
-              fill: false,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: { y: { beginAtZero: false } },
-          plugins: { legend: { position: "bottom" } },
-        },
-      });
-    }
-
-    // 🔹 실행
     fetchGoldPrices();
-    setInterval(fetchGoldPrices, 600000); // 10분마다 업데이트
+    setInterval(fetchGoldPrices, 600000);
   </script>
 </body>
 </html>
