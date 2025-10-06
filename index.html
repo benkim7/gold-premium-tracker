@@ -7,39 +7,27 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
   <style>
-    body {
-      font-family: 'Noto Sans KR', sans-serif;
-      text-align: center;
-      margin: 20px;
-      background-color: #fafafa;
+    body { font-family: 'Noto Sans KR', sans-serif; text-align: center; margin: 20px; background-color: #fafafa; }
+    h1 { margin-bottom: 10px; }
+    #chart-container, #fx-chart-container {
+      width: 100%; height: 60vh; margin-bottom: 40px;
+      overflow-x: auto; overflow-y: hidden;
     }
-    #chart-container {
-      width: 100%;
-      height: 65vh;
-      overflow-x: auto;
-      overflow-y: hidden;
-      white-space: nowrap;
-    }
-    canvas {
-      width: 150%;
-      height: 100%;
-    }
-    #footer {
-      font-size: 11px;
-      color: gray;
-      position: fixed;
-      bottom: 8px;
-      right: 10px;
-    }
+    canvas { width: 100%; height: 100%; }
+    #footer { font-size: 11px; color: gray; margin-top: 15px; }
   </style>
 </head>
-
 <body>
   <h1>금 김치 프리미엄 추이</h1>
   <div id="data"></div>
 
   <div id="chart-container">
     <canvas id="chart"></canvas>
+  </div>
+
+  <h2>환율 추이 (USD → KRW)</h2>
+  <div id="fx-chart-container">
+    <canvas id="fxChart"></canvas>
   </div>
 
   <div id="footer">
@@ -49,15 +37,61 @@
     <a href="https://apiportal.koreainvestment.com" target="_blank">한국투자증권 (국내 금)</a>
   </div>
 
-  <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-    const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
-    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
-    const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
-    let chart;
+const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
+let goldChart, fxChart;
 
-    async function fetchGoldPrices() {
-      try {
+async function fetchGoldPrices() {
+  try {
+    // 1️⃣ 국제 금 시세 (USD/oz)
+    const mResp = await fetch(`https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`);
+    const mJson = await mResp.json();
+    if (!mJson.success) throw new Error("Metals API 오류: " + JSON.stringify(mJson));
+    const intlPriceUSD = 1 / mJson.rates.XAU;
+
+    // 2️⃣ 환율 (USD→KRW)
+    const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
+    const fxJson = await fxResp.json();
+    const usdToKrw = fxJson?.rates?.KRW ?? fxJson?.conversion_rates?.KRW;
+    if (!usdToKrw) throw new Error("환율 데이터 없음");
+    const intlPriceKRW = intlPriceUSD * usdToKrw;
+
+    // 3️⃣ 국내 금 시세 (프록시)
+    let korPriceKRWPerOz = intlPriceKRW;
+    try {
+      const kisResp = await fetch("/api/kis-goldprice");
+      const kisJson = await kisResp.json();
+      if (kisResp.ok && kisJson?.ok && kisJson.priceKRWPerOz > 0) {
+        korPriceKRWPerOz = kisJson.priceKRWPerOz;
+      } else {
+        console.warn("국내 금 시세 없음, 국제 시세로 대체");
+      }
+    } catch (err) {
+      console.warn("KIS 프록시 호출 실패:", err);
+    }
+
+    // 4️⃣ 김치 프리미엄 계산
+    const premium = ((korPriceKRWPerOz - intlPriceKRW) / intlPriceKRW) * 100;
+
+    // 5️⃣ Supabase에 저장
+    await supabase.from("gold_prices").insert([
+      {
+        intl_price_usd: intlPriceUSD,
+        intl_price_krw: intlPriceKRW,
+        kor_price_krw: korPriceKRWPerOz,
+        usd_to_krw: usdToKrw,
+        premium,
+      },
+    ]);
+
+    // 6️⃣ 화면 표시
+    const nowKST = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    document.getElementById("data").innerHTML = `
+      <p>🕒 기준시각 (KST): ${nowKST.toLocaleString("ko-KR")}</p>
+      <p>국제 금 (USD/oz):
