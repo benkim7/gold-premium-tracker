@@ -4,31 +4,27 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>금 김치 프리미엄 추적기</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js + time 어댑터 + 줌 플러그인 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
   <style>
-    body { font-family: 'Noto Sans KR', sans-serif; text-align: center; margin: 20px; background-color: #fafafa; }
-    h1 { margin-bottom: 10px; }
-    #chart-container, #fx-chart-container {
-      width: 100%; height: 60vh; margin-bottom: 40px;
-      overflow-x: auto; overflow-y: hidden;
-    }
-    canvas { width: 100%; height: 100%; }
-    #footer { font-size: 11px; color: gray; margin-top: 15px; }
+    body { font-family: 'Noto Sans KR', sans-serif; text-align: center; margin: 20px; background: #fafafa; }
+    h1 { margin-bottom: 8px; }
+    #data { margin-bottom: 12px; }
+    /* 스크롤바가 보이도록 컨테이너는 고정폭, 캔버스는 코드에서 더 넓게 그립니다 */
+    .chart-wrap { width: 100%; height: 60vh; overflow-x: auto; overflow-y: hidden; border-radius: 8px; background:#fff; box-shadow: 0 2px 8px rgba(0,0,0,.05); margin-bottom: 28px; }
+    canvas { height: 100%; } /* width는 JS에서 동적으로 설정 */
+    #footer { font-size: 11px; color: gray; }
   </style>
 </head>
 <body>
   <h1>금 김치 프리미엄 추이</h1>
   <div id="data"></div>
 
-  <div id="chart-container">
-    <canvas id="chart"></canvas>
-  </div>
-
-  <h2>환율 추이 (USD → KRW)</h2>
-  <div id="fx-chart-container">
-    <canvas id="fxChart"></canvas>
-  </div>
+  <div class="chart-wrap"><canvas id="goldChart"></canvas></div>
+  <h2 style="margin:0 0 8px">환율 추이 (USD→KRW)</h2>
+  <div class="chart-wrap" style="height:42vh"><canvas id="fxChart"></canvas></div>
 
   <div id="footer">
     📊 데이터 출처:
@@ -40,58 +36,187 @@
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
-const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
-const supabase = createClient(supabaseUrl, supabaseKey);
-
+const supabase = createClient(
+  "https://ozatkbrmvkhejrbymrvd.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w"
+);
 const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
+
 let goldChart, fxChart;
 
+// 유틸
+const toKST = msUTC => new Date(msUTC + 9*60*60*1000);
+const fmtUSD = x => Number(x).toLocaleString("en-US", { maximumFractionDigits: 2 });
+const fmtKRW = x => Number(x).toLocaleString("ko-KR");
+
+// 메인 수집 + 저장 + 렌더
 async function fetchGoldPrices() {
   try {
-    // 1️⃣ 국제 금 시세 (USD/oz)
+    // 1) 국제 금 (USD/oz) - Metals API (10분 업데이트)
     const mResp = await fetch(`https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`);
     const mJson = await mResp.json();
     if (!mJson.success) throw new Error("Metals API 오류: " + JSON.stringify(mJson));
-    const intlPriceUSD = 1 / mJson.rates.XAU;
+    const intlPriceUSD = 1 / mJson.rates.XAU; // USD/oz
+    const lastUpdateKST = toKST(mJson.timestamp*1000).toLocaleString("ko-KR");
 
-    // 2️⃣ 환율 (USD→KRW)
+    // 2) 환율 (USD→KRW)
     const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
     const fxJson = await fxResp.json();
     const usdToKrw = fxJson?.rates?.KRW ?? fxJson?.conversion_rates?.KRW;
-    if (!usdToKrw) throw new Error("환율 데이터 없음");
-    const intlPriceKRW = intlPriceUSD * usdToKrw;
+    if (typeof usdToKrw !== "number") throw new Error("환율 응답 오류");
+    const intlPriceKRW = intlPriceUSD * usdToKrw; // KRW/oz
 
-    // 3️⃣ 국내 금 시세 (프록시)
+    // 3) 국내 금 (KIS 프록시, 단위: KRW/oz)
     let korPriceKRWPerOz = intlPriceKRW;
     try {
       const kisResp = await fetch("/api/kis-goldprice");
       const kisJson = await kisResp.json();
-      if (kisResp.ok && kisJson?.ok && kisJson.priceKRWPerOz > 0) {
+      if (kisResp.ok && kisJson?.ok && typeof kisJson.priceKRWPerOz === "number" && kisJson.priceKRWPerOz > 0) {
         korPriceKRWPerOz = kisJson.priceKRWPerOz;
-      } else {
-        console.warn("국내 금 시세 없음, 국제 시세로 대체");
       }
-    } catch (err) {
-      console.warn("KIS 프록시 호출 실패:", err);
-    }
+    } catch (_) { /* fallback 유지 */ }
 
-    // 4️⃣ 김치 프리미엄 계산
+    // 4) 프리미엄
     const premium = ((korPriceKRWPerOz - intlPriceKRW) / intlPriceKRW) * 100;
 
-    // 5️⃣ Supabase에 저장
-    await supabase.from("gold_prices").insert([
-      {
-        intl_price_usd: intlPriceUSD,
-        intl_price_krw: intlPriceKRW,
-        kor_price_krw: korPriceKRWPerOz,
-        usd_to_krw: usdToKrw,
-        premium,
-      },
-    ]);
+    // 5) DB 저장 (실패 시 화면에도 표시)
+    const { error: insertError } = await supabase.from("gold_prices").insert([{
+      intl_price_usd: intlPriceUSD,   // ✅ USD/oz 저장 (요청하신 대로)
+      intl_price_krw: intlPriceKRW,   // KRW/oz
+      kor_price_krw:  korPriceKRWPerOz,
+      usd_to_krw:     usdToKrw,
+      premium,
+    }]);
+    if (insertError) throw insertError;
 
-    // 6️⃣ 화면 표시
-    const nowKST = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    // 상단 정보
     document.getElementById("data").innerHTML = `
-      <p>🕒 기준시각 (KST): ${nowKST.toLocaleString("ko-KR")}</p>
-      <p>국제 금 (USD/oz):
+      <p>🕒 최근 업데이트(KST): ${lastUpdateKST}</p>
+      <p>🌎 국제 금 (USD/oz): ${fmtUSD(intlPriceUSD)}</p>
+      <p>🌎 국제 금 (KRW/oz): ${fmtKRW(intlPriceKRW)}</p>
+      <p>🇰🇷 국내 금 (KRW/oz): ${fmtKRW(korPriceKRWPerOz)}</p>
+      <p>💱 환율: ${fmtKRW(usdToKrw)} KRW/USD</p>
+      <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
+    `;
+
+    await renderGoldChart();
+    await renderFxChart();
+
+  } catch (err) {
+    console.error("fetchGoldPrices error:", err);
+    document.getElementById("data").innerHTML =
+      `<p style="color:#b00020">오류: ${err.message || err}</p>`;
+  }
+}
+
+// 차트 1: 국제(USD/oz, 노란 막대) + 국내(KRW/oz, 파란 막대) + 프리미엄(%) 선
+async function renderGoldChart() {
+  const { data, error } = await supabase
+    .from("gold_prices")
+    .select("created_at,intl_price_usd,kor_price_krw,premium")
+    .order("created_at", { ascending: true });
+
+  if (error || !data || !data.length) return;
+
+  // time scale용 포인트 (UTC → KST 보정)
+  const ptsUSD = data.map(r => ({ x: toKST(Date.parse(r.created_at)), y: r.intl_price_usd }));   // USD/oz
+  const ptsKRW = data.map(r => ({ x: toKST(Date.parse(r.created_at)), y: r.kor_price_krw }));    // KRW/oz
+  const ptsPct = data.map(r => ({ x: toKST(Date.parse(r.created_at)), y: r.premium }));          // %
+
+  // ✅ 스크롤바 만들기: 캔버스 폭을 데이터 개수에 비례해 크게
+  const pxPerPoint = 40; // 데이터 1개당 가로 픽셀
+  const canvas = document.getElementById("goldChart");
+  canvas.width  = Math.max(900, ptsUSD.length * pxPerPoint);
+  canvas.height = 480;
+
+  if (goldChart) goldChart.destroy();
+  goldChart = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      datasets: [
+        { label: "국제 금 (USD/oz)", data: ptsUSD, backgroundColor: "rgba(255, 215, 0, 0.65)", yAxisID: "yUSD" },
+        { label: "국내 금 (KRW/oz)", data: ptsKRW, backgroundColor: "rgba(30, 144, 255, 0.45)", yAxisID: "yKRW" },
+        { type: "line", label: "김치 프리미엄 (%)", data: ptsPct, borderColor: "red", borderWidth: 2, fill: false, yAxisID: "yPct" },
+      ],
+    },
+    options: {
+      parsing: false,           // {x,y} 그대로 사용
+      responsive: false,        // ✅ 캔버스 width를 우리가 직접 제어(스크롤바)
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: {
+          type: "time",
+          time: { unit: "minute", displayFormats: { minute: "MM-dd HH:mm" } },
+          title: { display: true, text: "시간 (KST)" },
+        },
+        yUSD: {                  // 왼쪽: USD/oz (노란 막대)
+          position: "left",
+          title: { display: true, text: "USD/oz" },
+        },
+        yKRW: {                  // 오른쪽: KRW/oz (파란 막대)
+          position: "right",
+          title: { display: true, text: "KRW/oz" },
+          grid: { drawOnChartArea: false },
+        },
+        yPct: {                  // 오른쪽 보조축: %
+          position: "right",
+          title: { display: true, text: "프리미엄 (%)" },
+          grid: { drawOnChartArea: false },
+          offset: true
+        },
+      },
+      plugins: {
+        legend: { position: "bottom" },
+        zoom: {
+          pan:  { enabled: true, mode: "x" },
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, drag: { enabled: true }, scaleMode: "x" }, // ✅ 최신 옵션명
+        },
+      },
+    },
+  });
+}
+
+// 차트 2: 환율
+async function renderFxChart() {
+  const { data, error } = await supabase
+    .from("gold_prices")
+    .select("created_at,usd_to_krw")
+    .order("created_at", { ascending: true });
+
+  if (error || !data || !data.length) return;
+
+  const ptsFx = data.map(r => ({ x: toKST(Date.parse(r.created_at)), y: r.usd_to_krw }));
+
+  const canvas = document.getElementById("fxChart");
+  const pxPerPoint = 30;
+  canvas.width  = Math.max(900, ptsFx.length * pxPerPoint);
+  canvas.height = 360;
+
+  if (fxChart) fxChart.destroy();
+  fxChart = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: { datasets: [{ label: "KRW/USD", data: ptsFx, borderColor: "blue", borderWidth: 2, fill: false }] },
+    options: {
+      parsing: false,
+      responsive: false,        // ✅ 스크롤바 위한 고정폭
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: { type: "time", time: { unit: "minute", displayFormats: { minute: "MM-dd HH:mm" } }, title: { display: true, text: "시간 (KST)" } },
+        y: { title: { display: true, text: "환율 (KRW/USD)" }, beginAtZero: false },
+      },
+      plugins: {
+        legend: { position: "bottom" },
+        zoom: { pan: { enabled: true, mode: "x" }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, drag: { enabled: true }, scaleMode: "x" } },
+      },
+    },
+  });
+}
+
+// 10분 간격 수집
+fetchGoldPrices();
+setInterval(fetchGoldPrices, 600000);
+</script>
+</body>
+</html>
