@@ -87,14 +87,17 @@
       `;
 
       // 6) DB 저장
-      await supabase.from("gold_prices").insert([
-        {
-          intl_price_usd: intlPriceUSD,
-          intl_price_krw: intlPriceKRW,
-          kor_price_krw: korPriceKRWPerOz,
-          premium,
-        },
-      ]);
+    // DB 저장 전 환율 데이터 포함
+    await supabase.from("gold_prices").insert([
+      {
+        intl_price_usd: intlPriceUSD,
+        intl_price_krw: intlPriceKRW,
+        kor_price_krw: korPriceKRWPerOz,
+        usd_to_krw: usdToKrw, // 💡 환율도 같이 저장
+        premium,
+      },
+    ]);
+
 
       // 7) 차트 갱신
       loadChart();
@@ -102,6 +105,15 @@
       console.error("fetchGoldPrices error:", err);
       document.getElementById("data").innerHTML = `<p style="color:red">오류: ${err.message}</p>`;
     }
+
+    // 8) 거래 상태 표시
+    let marketStatus = "🔴 휴장중";
+    if (korPriceKRWPerOz > 0) marketStatus = "🟢 거래중";
+    
+    document.getElementById("data").innerHTML += `
+      <p>시장 상태: <strong>${marketStatus}</strong></p>
+    `;
+
   }
 
   async function loadChart() {
@@ -160,7 +172,48 @@
     });
   }
 
+  async function loadFxChart() {
+  const { data } = await supabase
+    .from("gold_prices")
+    .select("created_at,usd_to_krw")
+    .order("created_at", { ascending: true });
+
+  if (!data || data.length === 0) return;
+
+  const labels = data.map(r => new Date(r.created_at).toLocaleString());
+  const fx = data.map(r => r.usd_to_krw);
+
+  const ctx = document.createElement("canvas");
+  ctx.id = "fxChart";
+  document.body.appendChild(ctx);
+
+  new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "USD → KRW 환율 추이",
+        data: fx,
+        borderColor: "blue",
+        borderWidth: 2,
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { y: { beginAtZero: false } },
+      plugins: { legend: { position: "bottom" } },
+    },
+  });
+}
+
+      
+
   fetchGoldPrices();
+  loadChart();
+  loadFxChart(); // 환율 차트 추가
+
   setInterval(fetchGoldPrices, 600000); // 10분마다
 </script>
 
