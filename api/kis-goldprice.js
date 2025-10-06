@@ -1,15 +1,13 @@
-// api/kis-goldprice.js
-import fetch from "node-fetch";
+// /api/kis-goldprice.js
 
 export default async function handler(req, res) {
   try {
     const { KIS_APP_KEY, KIS_APP_SECRET, KIS_GOLD_PDNO, KIS_MARKET_DIV, KIS_TR_ID } = process.env;
-    if (!KIS_APP_KEY || !KIS_APP_SECRET) {
-      return res.status(400).json({ error: "KIS_APP_KEY / KIS_APP_SECRET 미설정" });
-    }
+    if (!KIS_APP_KEY || !KIS_APP_SECRET)
+      return res.status(400).json({ error: "환경변수 누락: KIS_APP_KEY / KIS_APP_SECRET 미설정" });
 
-    // ✅ Access Token 발급
-    const tokenRes = await fetch("https://openapi.koreainvestment.com:9443/oauth2/tokenP", {
+    // 1️⃣ 액세스 토큰 요청
+    const tokenResp = await fetch("https://openapi.koreainvestment.com:9443/oauth2/tokenP", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -19,47 +17,66 @@ export default async function handler(req, res) {
       }),
     });
 
-    const tokenJson = await tokenRes.json();
-    if (!tokenRes.ok || !tokenJson?.access_token) {
-      return res.status(500).json({ error: "토큰 발급 실패", detail: tokenJson });
+    let tokenJson;
+    try {
+      tokenJson = await tokenResp.json();
+    } catch (e) {
+      const text = await tokenResp.text();
+      throw new Error("토큰 응답 JSON 파싱 실패: " + text);
     }
 
-    const accessToken = tokenJson.access_token;
+    if (!tokenJson?.access_token)
+      throw new Error("토큰 발급 실패: " + JSON.stringify(tokenJson));
 
-    // ✅ 금현물 조회
-    const url = `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price`;
-    const query = new URLSearchParams({
+    const token = tokenJson.access_token;
+
+    // 2️⃣ 금현물 시세 요청
+    const kisUrl = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price";
+    const params = new URLSearchParams({
       FID_COND_MRKT_DIV_CODE: KIS_MARKET_DIV || "J",
-      FID_INPUT_ISCD: KIS_GOLD_PDNO || "KR7064580005",
+      FID_INPUT_ISCD: KIS_GOLD_PDNO || "KR7064580005", // 금현물
     });
 
-    const priceRes = await fetch(`${url}?${query.toString()}`, {
+    const kisResp = await fetch(`${kisUrl}?${params.toString()}`, {
+      method: "GET",
       headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        authorization: `Bearer ${token}`,
         appkey: KIS_APP_KEY,
         appsecret: KIS_APP_SECRET,
         tr_id: KIS_TR_ID || "FHKST01010100",
       },
     });
 
-    const priceJson = await priceRes.json();
-    if (!priceRes.ok || !priceJson?.output) {
-      return res.status(500).json({ error: "시세 조회 실패", detail: priceJson });
+    let kisJson;
+    try {
+      kisJson = await kisResp.json();
+    } catch {
+      const text = await kisResp.text();
+      return res.status(500).json({ error: "KIS 응답 JSON 파싱 실패", detail: text });
     }
 
-    const stck_prpr = Number(priceJson.output.stck_prpr || 0);
-    const priceKRWPerGram = stck_prpr;
+    // 3️⃣ 정상 처리
+    const priceKRWPerGram = Number(kisJson.output?.stck_prpr || 0);
     const priceKRWPerOz = priceKRWPerGram * 31.1035;
 
-    return res.status(200).json({
+    if (priceKRWPerGram === 0)
+      return res.status(200).json({
+        ok: true,
+        msg: "금 시세 0원 — 휴장 혹은 데이터 없음",
+        priceKRWPerGram,
+        priceKRWPerOz,
+      });
+
+    res.status(200).json({
       ok: true,
-      pdno: KIS_GOLD_PDNO,
+      pdno: KIS_GOLD_PDNO || "KR7064580005",
       priceKRWPerGram,
       priceKRWPerOz,
-      raw: priceJson,
+      raw: kisJson,
     });
   } catch (err) {
-    return res.status(500).json({ error: String(err) });
+    console.error("KIS 프록시 에러:", err);
+    res.status(500).json({ error: err.message || "서버 에러" });
   }
 }
