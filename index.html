@@ -16,7 +16,7 @@
 
     // 🔹 여기에 너의 Supabase 정보 입력
     const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
-    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
+    const supabaseKey = process.env.SUPABASE_KEY;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     async function fetchGoldPrices() {
