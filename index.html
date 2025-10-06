@@ -24,15 +24,13 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
-
   let chart;
   let filterYears = 3; // 기본값: 최근 3년 표시
 
   async function fetchGoldPrices() {
     try {
       // 1️⃣ 국제 금 시세
-      const mUrl = `https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`;
+      const mUrl = `https://metals-api.com/api/latest?access_key=6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu&base=USD&symbols=XAU`;
       const mResp = await fetch(mUrl);
       const mJson = await mResp.json();
       if (!mJson.success) throw new Error("Metals API 오류");
