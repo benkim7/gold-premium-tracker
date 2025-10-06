@@ -19,15 +19,12 @@
   const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Metals-API 키 (이미 쓰던 값 그대로)
-  const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
-
   let chart; // 차트 중복 생성 방지용
 
   async function fetchGoldPrices() {
     try {
       // 1) 국제 금 시세 (USD/oz)
-      const mUrl = `https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`;
+      const mUrl = `https://metals-api.com/api/latest?access_key=6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu&base=USD&symbols=XAU`;
       const mResp = await fetch(mUrl);
       const mJson = await mResp.json();
       if (!mResp.ok || !mJson?.success) {
