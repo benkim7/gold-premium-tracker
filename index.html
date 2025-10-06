@@ -8,8 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
   <style>
     body { font-family: 'Noto Sans KR', sans-serif; text-align: center; margin: 20px; background-color: #fafafa; }
-    #chart-container { width: 100%; height: 60vh; margin-bottom: 50px; }
-    #fx-chart-container { width: 100%; height: 40vh; margin-top: 20px; }
+    #chart-container, #fx-chart-container { width: 100%; height: 60vh; margin-bottom: 40px; }
     canvas { width: 100%; height: 100%; }
     #footer { font-size: 11px; color: gray; position: fixed; bottom: 8px; right: 10px; }
   </style>
@@ -51,7 +50,6 @@ async function fetchGoldPrices() {
     const usdToKrw = fxJson?.rates?.KRW ?? fxJson?.conversion_rates?.KRW;
     const intlPriceKRW = intlPriceUSD * usdToKrw;
 
-    // 🇰🇷 국내 금 가격 (KIS 프록시)
     let korPriceKRWPerOz = intlPriceKRW;
     try {
       const kisResp = await fetch("/api/kis-goldprice");
@@ -96,7 +94,6 @@ async function fetchGoldPrices() {
   }
 }
 
-// 📊 김치 프리미엄 + 금 가격 차트
 async function loadChart() {
   const { data } = await supabase
     .from("gold_prices")
@@ -137,15 +134,22 @@ async function loadChart() {
       plugins: {
         legend: { position: "bottom" },
         zoom: {
-          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
-          pan: { enabled: true, mode: "x" },
+          pan: {
+            enabled: true,
+            mode: "x",
+            modifierKey: "ctrl", // ctrl 누르고 드래그 시 과거 데이터 이동
+          },
+          zoom: {
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            mode: "x",
+          },
         },
       },
     },
   });
 }
 
-// 💱 환율 그래프 (USD→KRW)
 async function loadFxChart() {
   const { data } = await supabase
     .from("gold_prices")
@@ -171,7 +175,7 @@ async function loadFxChart() {
       maintainAspectRatio: false,
       plugins: {
         zoom: {
-          pan: { enabled: true, mode: "x" },
+          pan: { enabled: true, mode: "x", modifierKey: "ctrl" },
           zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
         },
       },
@@ -181,7 +185,7 @@ async function loadFxChart() {
 }
 
 fetchGoldPrices();
-setInterval(fetchGoldPrices, 600000); // 10분 간격
+setInterval(fetchGoldPrices, 600000);
 </script>
 </body>
 </html>
