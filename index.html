@@ -16,48 +16,44 @@
 
     const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
     const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";  // 반드시 anon public key
-
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     async function fetchGoldPrices() {
       try {
-        // 1) Metals-API 호출
-        const resp = await fetch(
+        // metals-api 호출 (URL 및 키 확인)
+        const response = await fetch(
           `https://metalapi.com/api/v1/latest?api_key=6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu&base=USD&symbols=XAU`
         );
-        const json = await resp.json();
+        const json = await response.json();
 
-        // 성공 여부 체크
-        if (!json.success) {
-          console.error("metals api error:", json);
+        if (!json || !json.rates || typeof json.rates.XAU !== "number") {
+          console.error("금 시세 API 응답 형식 오류:", json);
           return;
         }
 
-        // 금 시세 비율 가져오기
-        // 예: rates.XAU = 0.00053853 → meaning 1 USD = 0.00053853 XAU
+        // metals-api의 rates.XAU는 “1 USD = XAU 단위 금” 비율일 수 있으니 역수 취해야 함
         const rateXAU = json.rates.XAU;
-        const intlPriceUSD = 1.0 / rateXAU; // USD per ounce
+        const intlPriceUSD = 1 / rateXAU; // USD per ounce
 
-        // 2) 환율 조회
+        // 환율 가져오기
         const fxRes = await fetch("https://api.exchangerate.host/latest?base=USD&symbols=KRW");
         const fxData = await fxRes.json();
         const usdToKrw = fxData.rates.KRW;
-
         const intlPriceKRW = intlPriceUSD * usdToKrw;
 
-        // 3) 국내 가격 임시로 설정
-        const korPrice = intlPriceKRW * (1 + (Math.random() * 0.05 - 0.02));  // 예측값
+        // 임시 국내 가격 (나중에 실제 국내 금 시세 API로 교체)
+        const korPrice = intlPriceKRW * (1 + (Math.random() * 0.05 - 0.02));
         const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
 
         // 화면 출력
         document.getElementById("data").innerHTML = `
           <p>국제 금 (USD/oz): ${intlPriceUSD.toFixed(2)}</p>
-          <p>국제 금 (원화 환산): ${intlPriceKRW.toLocaleString()}</p>
-          <p>국내 금 시세 (추정): ${korPrice.toLocaleString()}</p>
+          <p>국제 금 (KRW 환산): ${intlPriceKRW.toLocaleString()}</p>
+          <p>국내 금 시세(추정): ${korPrice.toLocaleString()}</p>
           <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
         `;
 
-        // Supabase 삽입
+        // Supabase 저장
         const { error: insertError } = await supabase
           .from("gold_prices")
           .insert([
@@ -68,7 +64,9 @@
               premium,
             },
           ]);
-        if (insertError) console.error("Insert error:", insertError);
+        if (insertError) {
+          console.error("Supabase insert error:", insertError);
+        }
 
         // 차트 불러오기
         loadChart();
@@ -80,13 +78,14 @@
     async function loadChart() {
       const { data, error } = await supabase
         .from("gold_prices")
-        .select("created_at, premium")
+        .select("created_at,premium")
         .order("created_at", { ascending: true });
 
       if (error) {
         console.error("loadChart error:", error);
         return;
       }
+
       const labels = data.map(row => new Date(row.created_at).toLocaleString());
       const values = data.map(row => row.premium);
 
