@@ -6,201 +6,176 @@
   <title>금 김치 프리미엄 추적기</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body {
-      font-family: 'Noto Sans KR', sans-serif;
-      text-align: center;
-      margin: 20px;
-      background-color: #fafafa;
-    }
-    #data {
-      margin-bottom: 10px;
-      font-size: 14px;
-    }
-    #chart-container {
-      position: relative;
-      width: 100%;
-      height: 65vh; /* 📱 모바일에서도 확대 표시 */
-    }
-    canvas {
-      width: 100%;
-      height: 100%;
-    }
-    #footer {
-      font-size: 11px;
-      color: gray;
-      position: fixed;
-      bottom: 8px;
-      right: 10px;
-    }
+    body { font-family: 'Noto Sans KR', sans-serif; text-align: center; margin: 20px; }
+    #chart-container { width: 100%; height: 65vh; }
+    canvas { width: 100%; height: 100%; }
+    #footer { font-size: 11px; color: gray; position: fixed; bottom: 8px; right: 10px; }
   </style>
 </head>
-
 <body>
   <h1>금 김치 프리미엄 추이</h1>
   <div id="data"></div>
-  <div id="chart-container">
-    <canvas id="chart"></canvas>
-  </div>
-
+  <div id="chart-container"><canvas id="chart"></canvas></div>
   <div id="footer">
-    📊 출처:
-    <a href="https://metals-api.com" target="_blank">Metals API</a>,
-    <a href="https://open.er-api.com" target="_blank">Open ER-API</a>
+    📊 출처: Metals API, KIS Open API
   </div>
 
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-  const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
-  const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // 한국투자증권 API 키 & 시크릿
-  const KIS_APP_KEY = "PSbsOhkiWXoAKxwEqTgI5PNnXp2H2v9fysgz";
-  const KIS_APP_SECRET = "2kvtVRkd00c3CyxoYGw8knFLbB9lZjj8O0NuUovrtzlHMFheQ7FK5pQeRkbE77sCdvzo5WG5gSdGI/h2nwWe3jbJmz89OVntY5ros77dkpJUKGRQ4PvAMjlLudYwzBB8SXqqPRj+ZvAIrVBThuSJkMxOBLAUPt61o/IUx0JbJYMJSzd4R6U=";
+    const METALS_KEY = "6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu";
+    const KIS_APPKEY = "PSbsOhkiWXoAKxwEqTgI5PNnXp2H2v9fysgz";
+    const KIS_APPSECRET = "2kvtVRkd00c3CyxoYGw8knFLbB9lZjj8O0NuUovrtzlHMFheQ7FK5pQeRkbE77sCdvzo5WG5gSdGI/h2nwWe3jbJmz89OVntY5ros77dkpJUKGRQ4PvAMjlLudYwzBB8SXqqPRj+ZvAIrVBThuSJkMxOBLAUPt61o/IUx0JbJYMJSzd4R6U=";
+    const GOLD_ISCD_CODE = "금현물_ISCD";  // 문서 보고 채워야 함
+    const MARKET_DIV = "J";  // 또는 문서에 나오는 시장 구분 코드
 
-  let chart;
+    let chart;
 
-  async function fetchGoldPrices() {
-    try {
-      // 1) 국제 금 시세 (USD/oz) — metals-api 사용 유지
-      const mResp = await fetch(
-        `https://metals-api.com/api/latest?access_key=6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu&base=USD&symbols=XAU`
-      );
-      const mJson = await mResp.json();
-      if (!mJson.success) throw new Error("Metals API 오류");
-      const intlPriceUSD = 1 / mJson.rates.XAU;
-
-      // 2) USD→KRW 환율
-      const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
-      const fxJson = await fxResp.json();
-      const usdToKrw = fxJson.rates.KRW;
-
-      const intlPriceKRW = intlPriceUSD * usdToKrw;
-
-      // 3) 한국투자 API로 국내 금 가격 조회
-      let korPrice;
-      try {
-        const kisUrl = "https://api.koreainvestment.com/…/search-stock-info"; 
-        // 실제 문서에 있는 엔드포인트 경로로 바꿔야 함
-        const payload = {
-          appKey: KIS_APP_KEY,
-          appSecret: KIS_APP_SECRET,
-          // 기타 문서에서 요구하는 파라미터: 종목코드, 시장구분 등
-          stock_code: "금현물코드", 
-        };
-        const kisResp = await fetch(kisUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            // 인증 헤더 필요하면 넣기 (예: Authorization 등)
-          },
-          body: JSON.stringify(payload),
-        });
-        const kisJson = await kisResp.json();
-        // 응답 구조 보고 아래 필드명 바꿔야 함
-        korPrice = Number(kisJson.body.price); 
-      } catch (err) {
-        console.warn("KIS API 실패, fallback 사용:", err);
-        korPrice = intlPriceKRW; // fallback
-      }
-
-      const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
-
-      // 화면 표시
-      document.getElementById("data").innerHTML = `
-        <p>국제 금 (USD/oz): ${intlPriceUSD.toFixed(2)}</p>
-        <p>국제 금 (KRW/oz): ${intlPriceKRW.toLocaleString()}</p>
-        <p>국내 금 (KRX 기준): ${korPrice.toLocaleString()}</p>
-        <p>현재 환율: ${usdToKrw.toLocaleString()}</p>
-        <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
-      `;
-
-      // DB 저장
-      await supabase.from("gold_prices").insert([
-        {
-          intl_price_usd: intlPriceUSD,
-          intl_price_krw: intlPriceKRW,
-          kor_price_krw: korPrice,
-          premium,
+    async function getAccessToken() {
+      const tokenUrl = "https://openapi.koreainvestment.com:9443/oauth2/tokenP";
+      const resp = await fetch(tokenUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
         },
-      ]);
-
-      loadChart();
-    } catch (err) {
-      console.error("fetchGoldPrices 에러:", err);
-      document.getElementById("data").innerHTML = `<p style="color:red">API 오류: ${err.message}</p>`;
+        body: JSON.stringify({
+          grant_type: "client_credentials",
+          appkey: KIS_APPKEY,
+          appsecret: KIS_APPSECRET
+        })
+      });
+      const j = await resp.json();
+      if (!j.access_token) throw new Error("토큰 발급 실패: " + JSON.stringify(j));
+      return j.access_token;
     }
-  }
 
-  async function loadChart() {
-    const { data } = await supabase
-      .from("gold_prices")
-      .select("created_at,intl_price_krw,kor_price_krw,premium")
-      .order("created_at", { ascending: true });
-    if (!data || data.length === 0) return;
+    async function fetchGoldPrices() {
+      try {
+        // 국제 금 시세 (USD/oz)
+        const mResp = await fetch(`https://metals-api.com/api/latest?access_key=${METALS_KEY}&base=USD&symbols=XAU`);
+        const mJson = await mResp.json();
+        if (!mJson.success) throw new Error("Metals API 오류: " + JSON.stringify(mJson));
+        const intlPriceUSD = 1 / mJson.rates.XAU;
 
-    const labels = data.map(r => new Date(r.created_at).toLocaleTimeString());
-    const intl = data.map(r => r.intl_price_krw);
-    const kor = data.map(r => r.kor_price_krw);
-    const prem = data.map(r => r.premium);
+        // 환율 (USD → KRW)
+        const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
+        const fxJson = await fxResp.json();
+        const usdToKrw = fxJson.rates.KRW;
+        const intlPriceKRW = intlPriceUSD * usdToKrw;
 
-    const ctx = document.getElementById("chart").getContext("2d");
-    if (chart) chart.destroy();
-    chart = new Chart(ctx, {
-      data: {
-        labels,
-        datasets: [
+        // 국내 금 시세 (KIS API)
+        let korPrice;
+        try {
+          const token = await getAccessToken();
+          const kisUrl = "https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/search-stock-info";
+          // GET 방식 + query parameters
+          const query = `?FID_COND_MRKT_DIV_CODE=${MARKET_DIV}&FID_INPUT_ISCD=${GOLD_ISCD_CODE}`;
+          const resp = await fetch(kisUrl + query, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              "authorization": `Bearer ${token}`,
+              "appkey": KIS_APPKEY,
+              "appsecret": KIS_APPSECRET,
+              "tr_id": "FHKST01010100"
+            }
+          });
+          const jres = await resp.json();
+          // 문서 예시대로 output 내부 필드명을 찾아야 함
+          korPrice = Number(jres.output.stck_prpr);
+        } catch (err) {
+          console.warn("KIS 금현물 조회 오류:", err);
+          korPrice = intlPriceKRW;  // fallback
+        }
+
+        const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
+
+        document.getElementById("data").innerHTML = `
+          <p>국제 금 (USD/oz): ${intlPriceUSD.toFixed(2)}</p>
+          <p>국제 금 (KRW/oz): ${intlPriceKRW.toLocaleString()}</p>
+          <p>국내 금 가격: ${korPrice.toLocaleString()}</p>
+          <p>현재 환율: ${usdToKrw.toLocaleString()}</p>
+          <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
+        `;
+
+        await supabase.from("gold_prices").insert([
           {
-            type: "bar",
-            label: "국제 금가격 (KRW/oz)",
-            data: intl,
-            backgroundColor: "rgba(255, 215, 0, 0.5)",
-            yAxisID: "y1",
+            intl_price_usd: intlPriceUSD,
+            intl_price_krw: intlPriceKRW,
+            kor_price_krw: korPrice,
+            premium,
           },
-          {
-            type: "bar",
-            label: "국내 금가격 (KRW/oz)",
-            data: kor,
-            backgroundColor: "rgba(30, 144, 255, 0.4)",
-            yAxisID: "y1",
-          },
-          {
-            type: "line",
-            label: "김치 프리미엄 (%)",
-            data: prem,
-            borderColor: "red",
-            borderWidth: 2,
-            fill: false,
-            yAxisID: "y2",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y1: {
-            position: "left",
-            title: { display: true, text: "금가격 (KRW/oz)" },
-            grid: { drawOnChartArea: false },
-          },
-          y2: {
-            position: "right",
-            title: { display: true, text: "프리미엄 (%)" },
-            grid: { drawOnChartArea: false },
-          },
+        ]);
+
+        loadChart();
+      } catch (err) {
+        console.error("fetchGoldPrices 오류:", err);
+        document.getElementById("data").innerHTML = `<p style="color:red">오류: ${err.message}</p>`;
+      }
+    }
+
+    async function loadChart() {
+      const { data } = await supabase
+        .from("gold_prices")
+        .select("created_at,intl_price_krw,kor_price_krw,premium")
+        .order("created_at", { ascending: true });
+
+      if (!data || data.length === 0) return;
+
+      const labels = data.map(r => new Date(r.created_at).toLocaleTimeString());
+      const intl = data.map(r => r.intl_price_krw);
+      const kor = data.map(r => r.kor_price_krw);
+      const prem = data.map(r => r.premium);
+
+      const ctx = document.getElementById("chart").getContext("2d");
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        data: {
+          labels,
+          datasets: [
+            {
+              type: "bar",
+              label: "국제 금가격 (KRW/oz)",
+              data: intl,
+              backgroundColor: "rgba(255,215,0,0.5)",
+              yAxisID: "y1",
+            },
+            {
+              type: "bar",
+              label: "국내 금가격 (KRW/oz)",
+              data: kor,
+              backgroundColor: "rgba(30,144,255,0.4)",
+              yAxisID: "y1",
+            },
+            {
+              type: "line",
+              label: "김치 프리미엄 (%)",
+              data: prem,
+              borderColor: "red",
+              borderWidth: 2,
+              fill: false,
+              yAxisID: "y2",
+            },
+          ],
         },
-        plugins: {
-          legend: { position: "bottom" },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y1: { position: "left", title: { display: true, text: "금가격 (KRW/oz)" } },
+            y2: { position: "right", title: { display: true, text: "프리미엄 (%)" } },
+          },
+          plugins: { legend: { position: "bottom" } },
         },
-      },
-    });
-  }
+      });
+    }
 
-  fetchGoldPrices();
-  setInterval(fetchGoldPrices, 600000);
-</script>
-
+    fetchGoldPrices();
+    setInterval(fetchGoldPrices, 600000);
+  </script>
 </body>
 </html>
