@@ -5,172 +5,170 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>금 김치 프리미엄 추적기</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      text-align: center;
+      margin: 20px;
+      background-color: #fafafa;
+    }
+    #data {
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    #chart-container {
+      position: relative;
+      width: 100%;
+      height: 65vh; /* 📱 모바일에서도 확대 표시 */
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+    }
+    #footer {
+      font-size: 11px;
+      color: gray;
+      position: fixed;
+      bottom: 8px;
+      right: 10px;
+    }
+  </style>
 </head>
+
 <body>
   <h1>금 김치 프리미엄 추이</h1>
   <div id="data"></div>
-  <canvas id="chart" width="600" height="300"></canvas>
+  <div id="chart-container">
+    <canvas id="chart"></canvas>
+  </div>
 
-  
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-  // Supabase (네 값 유지)
-  const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
-  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
-  const supabase = createClient(supabaseUrl, supabaseKey);
-  
-  let chart;
-  let filterYears = 3; // 기본값: 최근 3년 표시
-
-  async function fetchGoldPrices() {
-    try {
-      // 1️⃣ 국제 금 시세
-      const mUrl = `https://metals-api.com/api/latest?access_key=6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu&base=USD&symbols=XAU`;
-      const mResp = await fetch(mUrl);
-      const mJson = await mResp.json();
-      if (!mJson.success) throw new Error("Metals API 오류");
-
-      const intlPriceUSD =
-        typeof mJson.rates?.USDXAU === "number"
-          ? mJson.rates.USDXAU
-          : 1 / mJson.rates.XAU;
-
-      // 2️⃣ 환율
-      const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
-      const fxJson = await fxResp.json();
-      const usdToKrw = fxJson.rates.KRW;
-
-      const intlPriceKRW = intlPriceUSD * usdToKrw;
-      const korPrice = intlPriceKRW * (1 + (Math.random() * 0.05 - 0.02));
-      const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
-
-      document.getElementById("data").innerHTML = `
-        <p>국제 금 (USD/oz): ${intlPriceUSD.toFixed(2)}</p>
-        <p>국제 금 (KRW/oz): ${intlPriceKRW.toLocaleString()}</p>
-        <p>국내 금 (KRW/oz): ${korPrice.toLocaleString()}</p>
-        <p>현재 환율: ${usdToKrw.toLocaleString()} KRW/USD</p>
-        <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
-      `;
-
-      // 3️⃣ Supabase 저장
-      await supabase.from("gold_prices").insert([
-        {
-          intl_price_usd: intlPriceUSD,
-          intl_price_krw: intlPriceKRW,
-          kor_price_krw: korPrice,
-          premium,
-        },
-      ]);
-
-      // 4️⃣ 차트 갱신
-      await loadChart();
-    } catch (err) {
-      console.error(err);
-      document.getElementById("data").innerHTML =
-        `<p style="color:red">에러: ${String(err.message)}</p>`;
-    }
-  }
-
-  async function loadChart() {
-    const since = new Date();
-    since.setFullYear(since.getFullYear() - filterYears);
-
-    const { data } = await supabase
-      .from("gold_prices")
-      .select("created_at,premium")
-      .gte("created_at", since.toISOString())
-      .order("created_at", { ascending: true });
-
-    if (!data || data.length === 0) return;
-
-    const labels = data.map(r => new Date(r.created_at).toLocaleString());
-    const values = data.map(r => r.premium);
-
-    const ctx = document.getElementById("chart").getContext("2d");
-    if (chart) chart.destroy();
-    chart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "김치 프리미엄 (%)",
-            data: values,
-            borderColor: "gold",
-            borderWidth: 2,
-            fill: false,
-            tension: 0.1,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { display: true },
-        },
-        scales: {
-          x: { ticks: { color: "#666" } },
-          y: { beginAtZero: true },
-        },
-      },
-    });
-  }
-
-  // 버튼 이벤트
-  window.setFilter = (years) => {
-    filterYears = years;
-    loadChart();
-  };
-
-  // 10분마다 자동 업데이트 (600,000ms)
-  fetchGoldPrices();
-  setInterval(fetchGoldPrices, 600000);
-</script>
-
-<style>
-  body {
-    font-family: 'Noto Sans KR', sans-serif;
-    margin: 20px;
-    text-align: center;
-  }
-  canvas {
-    max-width: 95%;
-    margin: auto;
-  }
-  #footer {
-    position: fixed;
-    bottom: 8px;
-    right: 12px;
-    font-size: 12px;
-    color: gray;
-  }
-  #buttons {
-    margin-top: 10px;
-  }
-  button {
-    margin: 0 5px;
-    padding: 5px 10px;
-    border: none;
-    border-radius: 6px;
-    background-color: #f5c542;
-    cursor: pointer;
-  }
-</style>
-
-<div id="buttons">
-  <button onclick="setFilter(1)">최근 1년</button>
-  <button onclick="setFilter(3)">최근 3년</button>
-</div>
-
-<div id="footer">
-  <p>
-    📊 데이터 출처:
+  <div id="footer">
+    📊 출처:
     <a href="https://metals-api.com" target="_blank">Metals API</a>,
     <a href="https://open.er-api.com" target="_blank">Open ER-API</a>
-  </p>
-</div>
+  </div>
 
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+    const supabaseUrl = "https://ozatkbrmvkhejrbymrvd.supabase.co";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96YXRrYnJtdmtoZWpyYnltcnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk2NDMxNTUsImV4cCI6MjA3NTIxOTE1NX0.vxq7FyffhNJwMzoV1c8b6lI25n39X6Tud2oTAiICM5w";
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    let chart;
+
+    async function fetchGoldPrices() {
+      try {
+        // 국제 금 시세 (USD/oz)
+        const mResp = await fetch("https://metals-api.com/api/latest?access_key=6w0ly66tw8li4g0hp72mzukci0p1qnheg4o8t3wby5qprrkw3u8rd9lj5gyu&base=USD&symbols=XAU");
+        const mJson = await mResp.json();
+        if (!mJson.success) throw new Error(JSON.stringify(mJson));
+        const intlPriceUSD = 1 / mJson.rates.XAU;
+
+        // USD→KRW 환율
+        const fxResp = await fetch("https://open.er-api.com/v6/latest/USD");
+        const fxJson = await fxResp.json();
+        const usdToKrw = fxJson.rates.KRW;
+        const intlPriceKRW = intlPriceUSD * usdToKrw;
+
+        // 국내 금 시세 (현재는 임시)
+        const korPrice = intlPriceKRW * (1 + (Math.random() * 0.05 - 0.02));
+        const premium = ((korPrice - intlPriceKRW) / intlPriceKRW) * 100;
+
+        document.getElementById("data").innerHTML = `
+          <p>국제 금(USD/oz): ${intlPriceUSD.toFixed(2)}</p>
+          <p>국제 금(KRW/oz): ${intlPriceKRW.toLocaleString()}</p>
+          <p>국내 금(KRW/oz): ${korPrice.toLocaleString()}</p>
+          <p>현재 환율(USD→KRW): ${usdToKrw.toLocaleString()}</p>
+          <h2>김치 프리미엄: ${premium.toFixed(2)}%</h2>
+        `;
+
+        await supabase.from("gold_prices").insert([
+          {
+            intl_price_usd: intlPriceUSD,
+            intl_price_krw: intlPriceKRW,
+            kor_price_krw: korPrice,
+            premium,
+          },
+        ]);
+
+        loadChart();
+      } catch (err) {
+        console.error("fetchGoldPrices error:", err);
+        document.getElementById("data").innerHTML = `<p style="color:red">API 에러 발생: ${err.message}</p>`;
+      }
+    }
+
+    async function loadChart() {
+      const { data, error } = await supabase
+        .from("gold_prices")
+        .select("created_at,intl_price_krw,kor_price_krw,premium")
+        .order("created_at", { ascending: true });
+
+      if (!data || data.length === 0) return;
+
+      const labels = data.map(r => new Date(r.created_at).toLocaleTimeString());
+      const intl = data.map(r => r.intl_price_krw);
+      const kor = data.map(r => r.kor_price_krw);
+      const prem = data.map(r => r.premium);
+
+      const ctx = document.getElementById("chart").getContext("2d");
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        data: {
+          labels,
+          datasets: [
+            {
+              type: "bar",
+              label: "국제 금가격 (KRW/oz)",
+              data: intl,
+              backgroundColor: "rgba(255, 215, 0, 0.5)",
+              yAxisID: "y1",
+            },
+            {
+              type: "bar",
+              label: "국내 금가격 (KRW/oz)",
+              data: kor,
+              backgroundColor: "rgba(30, 144, 255, 0.4)",
+              yAxisID: "y1",
+            },
+            {
+              type: "line",
+              label: "김치 프리미엄 (%)",
+              data: prem,
+              borderColor: "red",
+              borderWidth: 2,
+              fill: false,
+              yAxisID: "y2",
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y1: {
+              position: "left",
+              title: { display: true, text: "금가격 (KRW/oz)" },
+              grid: { drawOnChartArea: false },
+            },
+            y2: {
+              position: "right",
+              title: { display: true, text: "프리미엄 (%)" },
+              grid: { drawOnChartArea: false },
+            },
+          },
+          plugins: {
+            legend: {
+              position: "bottom",
+            },
+          },
+        },
+      });
+    }
+
+    fetchGoldPrices();
+    setInterval(fetchGoldPrices, 600000); // 10분마다 갱신
+  </script>
 </body>
 </html>
